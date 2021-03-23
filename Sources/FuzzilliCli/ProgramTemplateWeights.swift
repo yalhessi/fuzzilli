@@ -16,7 +16,7 @@ import Fuzzilli
 
 /// Assigned weights for the builtin program templates.
 let programTemplateWeights = [
-    "JIT1Function":          2,
-    "JIT2Functions":         2,
-    "TypeConfusionTemplate": 1,
+    "JIT1Function":          0,
+    "JIT2Functions":         0,
+    "TypeConfusionTemplate": 0,
 ]
