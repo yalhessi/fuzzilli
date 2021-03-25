@@ -63,9 +63,18 @@ let spidermonkeyProfile = Profile(
 
     processEnv: ["UBSAN_OPTIONS": "handle_segv=0"],
 
-    codePrefix: "",
+    codePrefix: """
+    var obj = {a: 1};
+    function foo() {
+        return obj.a;
+    }
+    """,
 
-    codeSuffix: "gc();",
+    codeSuffix: """
+    if (foo() != obj.a)
+        fuzzilli('FUZZILLI_CRASH', 0);
+    gc();
+    """,
 
     ecmaVersion: ECMAScriptVersion.es6,
 
@@ -84,72 +93,196 @@ let spidermonkeyProfile = Profile(
         "enqueueJob"    : .function([.function()] => .undefined),
         "drainJobQueue" : .function([] => .undefined),
         "bailout"       : .function([] => .undefined),
+        "foo"           : .function([] => .unknown),
+        "obj"           : .object(withProperties: ["a"]),
     ]
 )
 
 
-fileprivate let GetPropICTemplate = ProgramTemplate("GetPropIC", requiresPrefix: true) { b in
-        b.performSplicingDuringCodeGeneration = false
-        let genSize = 10
-        let objGen = CodeGenerators.get("ObjectGenerator")
+fileprivate let GetPropICTemplate = ProgramTemplate("GetPropIC", requiresPrefix: false) { b in
+    // let sig = [] => .undefined
+    // let f = b.definePlainFunction(withSignature: sig) { params in
+    //     b.generate(n: 10);
+    // }
+    // b.storeToScope(f, as: "foo")
 
-        let v1 = b.randVar()
-        let v2 = b.randVar()
-        let v3 = b.randVar()
-        // let o1 = b.createObject(with: ["x" : v1, "y": v2, "z": v3])
-        let o1 = b.randVar(ofConservativeType: .object(ofGroup: "Object", withProperties: [], withMethods: []))
-        let p1 = b.genPropertyNameForRead()
-        b.storeProperty(v1, as: p1, on: o1 ?? v1)
+    // This template is meant to stress the v8 Map transition mechanisms.
+    // Basically, it generates a bunch of CreateObject, LoadProperty, StoreProperty, FunctionDefinition,
+    // and CallFunction operations operating on a small set of objects and property names.
+    let propertyNames = ["a", "b", "c", "d", "e", "f", "g"]
 
-        let signature = ProgramTemplate.generateSignature(forFuzzer: b.fuzzer, n: 0)
-        let f = b.definePlainFunction(withSignature: signature) { args in
-            let v2 = b.loadProperty(p1, of: o1 ?? v1)
-            b.doReturn(value: v2)
+    // Use this as base object type. For one, this ensures that the initial map is stable.
+    // Moreover, this guarantees that when querying for this type, we will receive one of
+    // the objects we created and not e.g. a function (which is also an object).
+    let objType = Type.object(withProperties: ["a"])
+
+    // Signature of functions generated in this template
+    let sig = [objType, objType] => objType
+
+    // Create property values: integers, doubles, and heap objects.
+    // These should correspond to the supported property representations of the engine.
+    let intVal = b.loadInt(42)
+    let floatVal = b.loadFloat(13.37)
+    let objVal = b.createObject(with: [:])
+    let propertyValues = [intVal, floatVal, objVal]
+
+    // Now create a bunch of objects to operate on.
+    // Keep track of all objects created in this template so that they can be verified at the end.
+    var objects = [objVal]
+    for _ in 0..<5 {
+        objects.append(b.createObject(with: ["a": intVal]))
+    }
+
+    // Next, temporarily overwrite the active code generators with the following generators...
+    let createObjectGenerator = CodeGenerator("CreateObject") { b in
+        let obj = b.createObject(with: ["a": intVal])
+        objects.append(obj)
+    }
+    let propertyLoadGenerator = CodeGenerator("PropertyLoad", input: objType) { b, obj in
+        assert(objects.contains(obj))
+        b.loadProperty(chooseUniform(from: propertyNames), of: obj)
+    }
+    let propertyStoreGenerator = CodeGenerator("PropertyStore", input: objType) { b, obj in
+        assert(objects.contains(obj))
+        let numProperties = Int.random(in: 1...4)
+        for _ in 0..<numProperties {
+            b.storeProperty(chooseUniform(from: propertyValues), as: chooseUniform(from: propertyNames), on: obj)
         }
-
-        let start = b.loadInt(0)
-        let end = b.loadInt(10)
-        let step = b.loadInt(1)
-        b.forLoop(start, .lessThan, end, .Add, step) { _ in
-            b.callFunction(f, withArgs: [])
+    }
+    let functionDefinitionGenerator = CodeGenerator("FunctionDefinition") { b in
+        let prevSize = objects.count
+        b.definePlainFunction(withSignature: sig) { params in
+            objects += params
+            b.generateRecursive()
+            b.doReturn(value: b.randVar(ofType: objType)!)
         }
-
-        b.generate(n: genSize)
-        b.callFunction(f, withArgs: [])
-
-        let check1 = b.compare(b.callFunction(f, withArgs: []), b.loadProperty(p1, of: o1 ?? v1), with: .notEqual)
-        b.beginIf(check1) {
-            b.eval("fuzzilli('FUZZILLI_CRASH', 0)")
-            // if let env = b.fuzzer.environment as? JavaScriptEnvironment {
-                // env.registerBuiltin("crash", ofType: .function([] => .undefined))
-// ?                let crash = b.loadBuiltin("crash")
-                // b.callFunction(crash, withArgs: [])
-                // env.removeBuiltin("crash")
-            // }
+        objects.removeLast(objects.count - prevSize)
+    }
+    let functionCallGenerator = CodeGenerator("FunctionCall", input: .function()) { b, f in
+        b.callFunction(f, withArgs: b.randCallArguments(for: f)!)
+        // // TODO: Figure out why this definition is broken
+    
+        // let args = b.randCallArguments(for: sig)!
+        // assert(objects.contains(args[0]) && objects.contains(args[1]))
+        // let rval = b.callFunction(f, withArgs: args)
+        // assert(b.type(of: rval).Is(objType))
+        // objects.append(rval)
+    }
+    let functionJitCallGenerator = CodeGenerator("FunctionJitCall", input: .function()) { b, f in
+        let args = b.randCallArguments(for: sig)!
+        assert(objects.contains(args[0]) && objects.contains(args[1]))
+        b.forLoop(b.loadInt(0), .lessThan, b.loadInt(100), .Add, b.loadInt(1)) { _ in
+            b.callFunction(f, withArgs: args)       // Rval goes out-of-scope immediately, so no need to track it
         }
-        b.endIf();
+    }
 
-        let start2 = b.loadInt(0)
-        let end2 = b.loadInt(100)
-        let step2 = b.loadInt(1)
-        b.forLoop(start2, .lessThan, end2, .Add, step2) { _ in
-            b.callFunction(f, withArgs: [])
-        }
+    let prevCodeGenerators = b.fuzzer.codeGenerators
+    b.fuzzer.codeGenerators = WeightedList<CodeGenerator>([
+        (createObjectGenerator,       1),
+        (propertyLoadGenerator,       2),
+        (propertyStoreGenerator,      5),
+        (functionDefinitionGenerator, 1),
+        // (functionCallGenerator,       2),
+        // (functionJitCallGenerator,    1)
+    ])
 
-        b.generate(n: genSize)
-        b.callFunction(f, withArgs: [])
+    // Disable splicing, as we only want the above code generators to run
+    b.performSplicingDuringCodeGeneration = false
+
+    // ... and generate a bunch of code, starting with a function so that
+    // there is always at least one available for the call generators.
+    b.run(functionDefinitionGenerator, recursiveCodegenBudget: 10)
+    b.generate(n: 20)
+
+    // Now force compilation to use IC stubs
+    let foo = b.loadBuiltin("foo")
+    b.forLoop(b.loadInt(0), .lessThan, b.loadInt(10), .Add, b.loadInt(1)) { _ in
+        b.callFunction(foo, withArgs: [])
+    }
+
+    // Now, generate more code after compiling the stubs
+    b.generate(n: 20)
+
+    // // Now, restore the previous code generators, re-enable splicing, and generate some more code
+    b.fuzzer.codeGenerators = prevCodeGenerators
+    b.performSplicingDuringCodeGeneration = true
+    b.generate(n: 10)
+
+
+
+    // let obj = b.loadBuiltin("obj")
+    // let foo = b.loadBuiltin("foo")
+
+    // b.generate(n: 10)
+    
+    // let v = b.randVar()
+    // b.storeProperty(v, as: "a", on: obj)
+
+    // b.generate(n: 10)
+
+    // b.callFunction(foo, withArgs: [])
+
+//         b.performSplicingDuringCodeGeneration = false
+//         let genSize = 10
+//         let objGen = CodeGenerators.get("ObjectGenerator")
+
+//         let v1 = b.randVar()
+//         let v2 = b.randVar()
+//         let v3 = b.randVar()
+//         // let o1 = b.createObject(with: ["x" : v1, "y": v2, "z": v3])
+//         let o1 = b.randVar(ofConservativeType: .object(ofGroup: "Object", withProperties: [], withMethods: []))
+//         let p1 = b.genPropertyNameForRead()
+//         b.storeProperty(v1, as: p1, on: o1 ?? v1)
+
+//         let signature = ProgramTemplate.generateSignature(forFuzzer: b.fuzzer, n: 0)
+//         let f = b.definePlainFunction(withSignature: signature) { args in
+//             let v2 = b.loadProperty(p1, of: o1 ?? v1)
+//             b.doReturn(value: v2)
+//         }
+
+//         let start = b.loadInt(0)
+//         let end = b.loadInt(10)
+//         let step = b.loadInt(1)
+//         b.forLoop(start, .lessThan, end, .Add, step) { _ in
+//             b.callFunction(f, withArgs: [])
+//         }
+
+//         b.generate(n: genSize)
+//         b.callFunction(f, withArgs: [])
+
+//         let check1 = b.compare(b.callFunction(f, withArgs: []), b.loadProperty(p1, of: o1 ?? v1), with: .notEqual)
+//         b.beginIf(check1) {
+//             b.eval("fuzzilli('FUZZILLI_CRASH', 0)")
+//             // if let env = b.fuzzer.environment as? JavaScriptEnvironment {
+//                 // env.registerBuiltin("crash", ofType: .function([] => .undefined))
+// // ?                let crash = b.loadBuiltin("crash")
+//                 // b.callFunction(crash, withArgs: [])
+//                 // env.removeBuiltin("crash")
+//             // }
+//         }
+//         b.endIf();
+
+//         let start2 = b.loadInt(0)
+//         let end2 = b.loadInt(100)
+//         let step2 = b.loadInt(1)
+//         b.forLoop(start2, .lessThan, end2, .Add, step2) { _ in
+//             b.callFunction(f, withArgs: [])
+//         }
+
+//         b.generate(n: genSize)
+//         b.callFunction(f, withArgs: [])
         
-        let check2 = b.compare(b.callFunction(f, withArgs: []), b.loadProperty(p1, of: o1 ?? v1), with: .notEqual)
-        b.beginIf(check2) {
-            b.eval("fuzzilli('FUZZILLI_CRASH', 0)")
-            // if let env = b.fuzzer.environment as? JavaScriptEnvironment {
-                // env.registerBuiltin("crash", ofType: .function([] => .undefined))
-// ?                let crash = b.loadBuiltin("crash")
-                // b.callFunction(crash, withArgs: [])
-                // env.removeBuiltin("crash")
-            // }
-        }
-        b.endIf();
+//         let check2 = b.compare(b.callFunction(f, withArgs: []), b.loadProperty(p1, of: o1 ?? v1), with: .notEqual)
+//         b.beginIf(check2) {
+//             b.eval("fuzzilli('FUZZILLI_CRASH', 0)")
+//             // if let env = b.fuzzer.environment as? JavaScriptEnvironment {
+//                 // env.registerBuiltin("crash", ofType: .function([] => .undefined))
+// // ?                let crash = b.loadBuiltin("crash")
+//                 // b.callFunction(crash, withArgs: [])
+//                 // env.removeBuiltin("crash")
+//             // }
+//         }
+//         b.endIf();
         // b.throwException(check)
 
         // let v1 = b.createObject(with: [:])
