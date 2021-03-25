@@ -597,7 +597,7 @@ public class Fuzzer {
         do {
             let corePattern = try String(contentsOfFile: "/proc/sys/kernel/core_pattern", encoding: String.Encoding.ascii)
             if !corePattern.hasPrefix("|/bin/false") {
-                logger.fatal("Please run: sudo sysctl -w 'kernel.core_pattern=|/bin/false'")
+                logger.warning("Please run: sudo sysctl -w 'kernel.core_pattern=|/bin/false'")
             }
         } catch {
             logger.warning("Could not check core dump behaviour. Please ensure core_pattern is set to '|/bin/false'")
