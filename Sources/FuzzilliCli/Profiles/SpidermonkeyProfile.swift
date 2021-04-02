@@ -96,6 +96,7 @@ let spidermonkeyProfile = Profile(
         "bailout"       : .function([] => .undefined),
         "foo"           : .function([] => .unknown),
         "obj"           : .object(withProperties: ["a"]),
+        "index"         : .string,
     ]
 )
 
@@ -181,12 +182,12 @@ fileprivate let GetPropICTemplate = ProgramTemplate("GetPropIC", requiresPrefix:
         let typ = ProgramTemplate.generateType(forFuzzer: b.fuzzer); 
         let output = b.randVar(ofType: typ) ?? b.randVar();
         let to = b.randVar(ofType: typ) ?? b.randVar();
-        // b.reassign(output, to: to)
+        b.reassign(output, to: to)
     }
 
-    let elemNameGenerator = CodeGenerator("elemNameGenerator", input: .string) { b, str in
+    let elemNameGenerator = CodeGenerator("elemNameGenerator") { b in
         let newStr = b.genString()
-        b.reassign(str, to: b.loadString(newStr))
+        b.storeToScope(b.loadString(newStr), as: "index")
     }
 
     let prevCodeGenerators = b.fuzzer.codeGenerators
@@ -211,7 +212,7 @@ fileprivate let GetPropICTemplate = ProgramTemplate("GetPropIC", requiresPrefix:
 
     // Now force compilation to use IC stubs
     let foo = b.loadBuiltin("foo")
-    b.forLoop(b.loadInt(0), .lessThan, b.loadInt(10), .Add, b.loadInt(1)) { _ in
+    b.forLoop(b.loadInt(0), .lessThan, b.loadInt(11), .Add, b.loadInt(1)) { _ in
         b.callFunction(foo, withArgs: [])
     }
 
