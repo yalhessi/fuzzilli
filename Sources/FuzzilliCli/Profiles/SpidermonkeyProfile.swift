@@ -72,7 +72,7 @@ let spidermonkeyProfile = Profile(
     """,
 
     codeSuffix: """
-    if (foo() != obj[index])
+    if (foo() != obj[index] && !Number.isNaN(obj[index]))
         fuzzilli('FUZZILLI_CRASH', 0);
     gc();
     """,
