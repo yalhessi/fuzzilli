@@ -65,13 +65,14 @@ let spidermonkeyProfile = Profile(
 
     codePrefix: """
     var obj = {a: 1};
+    var index = "a";
     function foo() {
-        return obj.a;
+        return obj[index];
     }
     """,
 
     codeSuffix: """
-    if (foo() != obj.a)
+    if (foo() != obj[index])
         fuzzilli('FUZZILLI_CRASH', 0);
     gc();
     """,
@@ -176,6 +177,18 @@ fileprivate let GetPropICTemplate = ProgramTemplate("GetPropIC", requiresPrefix:
         }
     }
 
+    let reassignGenerator = CodeGenerator("Reassign") { b in
+        let typ = ProgramTemplate.generateType(forFuzzer: b.fuzzer); 
+        let output = b.randVar(ofType: typ) ?? b.randVar();
+        let to = b.randVar(ofType: typ) ?? b.randVar();
+        // b.reassign(output, to: to)
+    }
+
+    let elemNameGenerator = CodeGenerator("elemNameGenerator", input: .string) { b, str in
+        let newStr = b.genString()
+        b.reassign(str, to: b.loadString(newStr))
+    }
+
     let prevCodeGenerators = b.fuzzer.codeGenerators
     b.fuzzer.codeGenerators = WeightedList<CodeGenerator>([
         (createObjectGenerator,       1),
@@ -184,6 +197,8 @@ fileprivate let GetPropICTemplate = ProgramTemplate("GetPropIC", requiresPrefix:
         (functionDefinitionGenerator, 1),
         // (functionCallGenerator,       2),
         // (functionJitCallGenerator,    1)
+        // (reassignGenerator,           3),
+        (elemNameGenerator,           2),
     ])
 
     // Disable splicing, as we only want the above code generators to run
