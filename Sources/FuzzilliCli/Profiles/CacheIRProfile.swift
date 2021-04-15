@@ -200,7 +200,7 @@ fileprivate let GetPropICTemplate = ProgramTemplate("GetPropIC", requiresPrefix:
     }
     let functionDefinitionGenerator = CodeGenerator("FunctionDefinition") { b in
         let prevSize = objects.count
-        b.definePlainFunction(withSignature: sig) { params in
+        let fun = b.definePlainFunction(withSignature: sig) { params in
             objects += params
             b.generateRecursive()
             b.doReturn(value: b.randVar(ofType: objType)!)
@@ -259,14 +259,27 @@ fileprivate let GetPropICTemplate = ProgramTemplate("GetPropIC", requiresPrefix:
 
     // ... and generate a bunch of code, starting with a function so that
     // there is always at least one available for the call generators.
+    // for _ in 1..<10 {
     b.run(functionDefinitionGenerator, recursiveCodegenBudget: 10)
+    // }
     b.generate(n: 20)
 
     // Now force compilation to use IC stubs
 //     let foo = b.loadBuiltin("foo")
-//     b.forLoop(b.loadInt(0), .lessThan, b.loadInt(10), .Add, b.loadInt(1)) { _ in
-//         b.callFunction(foo, withArgs: [])
-//     }
+    let fun = b.randVar(ofType: .function())!
+    b.forLoop(b.loadInt(0), .lessThan, b.loadInt(11), .Add, b.loadInt(1)) { _ in
+        b.callFunction(fun, withArgs: [])
+    }
+
+    b.generate(n: 20)
+
+    b.forLoop(b.loadInt(0), .lessThan, b.loadInt(101), .Add, b.loadInt(1)) { _ in
+        b.callFunction(fun, withArgs: [])
+    }
+
+    b.generate(n: 20)
+
+
 
 //     // Now, generate more code after compiling the stubs
 //     b.generate(n: 20)
