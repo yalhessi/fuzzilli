@@ -37,6 +37,7 @@ let profiles = [
     "qjs": qjsProfile,
     "jsc": jscProfile,
     "spidermonkey": spidermonkeyProfile,
+    "cacheIR": cacheIRProfile,
     "v8": v8Profile,
     "duktape": duktapeProfile,
     "jerryscript": jerryscriptProfile,
