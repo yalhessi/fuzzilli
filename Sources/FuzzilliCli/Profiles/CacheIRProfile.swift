@@ -71,6 +71,7 @@ let definePropertyGenerator = CodeGenerator("definePropertyGenerator", input: .j
     let propertyName = getPropertyName(inBuilder: b, forObject: o)
     
     var initialProperties = [String: Variable]()
+    initialProperties["configurable"] = b.loadBool(true)
     withEqualProbability({
         withEqualProbability({
             guard let getter = b.randVar(ofType: .function()) else { return }
@@ -80,9 +81,6 @@ let definePropertyGenerator = CodeGenerator("definePropertyGenerator", input: .j
                 let this = b.loadFromScope(id: "this")
                 nativeGetPropGenerator.run(in: b, with: [this])
             }
-            initialProperties["get"] = getter
-        },{
-            let getter = b.loadBuiltin(b.genBuiltinName())
             initialProperties["get"] = getter
         })
     // }, {
@@ -259,14 +257,18 @@ fileprivate let GetPropICTemplate = ProgramTemplate("GetPropIC", requiresPrefix:
 
     // ... and generate a bunch of code, starting with a function so that
     // there is always at least one available for the call generators.
+    // b.run(functionDefinitionGenerator, recursiveCodegenBudget: 10)
+    // let funs: [Variable];
     // for _ in 1..<10 {
-    b.run(functionDefinitionGenerator, recursiveCodegenBudget: 10)
+        let fun = b.definePlainFunction(withSignature: sig) { params in
+            b.generateRecursive()
+        }
+        // funs.append(fun)
     // }
     b.generate(n: 20)
 
     // Now force compilation to use IC stubs
 //     let foo = b.loadBuiltin("foo")
-    let fun = b.randVar(ofType: .function())!
     b.forLoop(b.loadInt(0), .lessThan, b.loadInt(11), .Add, b.loadInt(1)) { _ in
         b.callFunction(fun, withArgs: [])
     }
