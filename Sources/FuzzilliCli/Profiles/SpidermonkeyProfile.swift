@@ -41,7 +41,8 @@ let spidermonkeyProfile = Profile(
         "--no-threads",
         "--cpu-count=1",
         "--ion-offthread-compile=off",
-        "--baseline-warmup-threshold=10",
+        "--blinterp-eager",
+        // "--baseline-warmup-threshold=10",
         "--ion-warmup-threshold=100",
         "--ion-check-range-analysis",
         "--ion-extra-checks",
@@ -64,16 +65,9 @@ let spidermonkeyProfile = Profile(
     processEnv: ["UBSAN_OPTIONS": "handle_segv=0"],
 
     codePrefix: """
-    var obj = {a: 1};
-    var index = "a";
-    function foo() {
-        return obj[index];
-    }
     """,
 
     codeSuffix: """
-    if (foo() != obj[index] && !Number.isNaN(obj[index]))
-        fuzzilli('FUZZILLI_CRASH', 0);
     gc();
     """,
 
@@ -85,7 +79,7 @@ let spidermonkeyProfile = Profile(
         (ForceSpidermonkeyIonGenerator, 10),
     ]),
 
-    additionalProgramTemplates: WeightedList<ProgramTemplate>([(GetPropICTemplate, 100)]),
+    additionalProgramTemplates: WeightedList<ProgramTemplate>([]),
 
     disabledCodeGenerators: [],
 
@@ -94,8 +88,6 @@ let spidermonkeyProfile = Profile(
         "enqueueJob"    : .function([.function()] => .undefined),
         "drainJobQueue" : .function([] => .undefined),
         "bailout"       : .function([] => .undefined),
-        "foo"           : .function([] => .unknown),
-        "obj"           : .object(withProperties: ["a"]),
     ]
 )
 

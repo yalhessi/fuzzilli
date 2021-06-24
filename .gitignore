@@ -8,3 +8,10 @@ corpus/*
 
 # custom GCE configuration
 Cloud/GCE/config.sh
+
+*.js
+*.protobuf
+*.diag
+*.history
+
+Cloud/*
