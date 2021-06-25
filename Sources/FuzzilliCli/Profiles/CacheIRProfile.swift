@@ -67,12 +67,46 @@ var dataViews: Set<Variable> = [];
 var arrayBuffers: Set<Variable> = [];
 var ccws: Set<Variable> = [];
 var functions: Set<Variable> = [];
-var arrays: Set<Variable> = [];
+var sparseArrays: Set<Variable> = [];
+var denseArrays: Set<Variable> = [];
 var classes: Set<Variable> = [];
 var classObjects: Set<Variable> = [];
 
+func allObjects() -> Set<Variable> {
+    return plainNatives
+.union(fancyNatives)
+.union(proxies)
+.union(domObjects)
+.union(typedArrays)
+.union(dataViews)
+.union(arrayBuffers)
+.union(ccws)
+.union(functions)
+.union(sparseArrays)
+.union(denseArrays)
+.union(classes)
+.union(classObjects)
+}
+
+func clearObjects() {
+    properties = [:]
+    plainNatives = []
+    fancyNatives = []
+    proxies = []
+    domObjects = []
+    typedArrays = []
+    dataViews = []
+    arrayBuffers = []
+    ccws = []
+    functions = []
+    sparseArrays = []
+    denseArrays = []
+    classes = []
+    classObjects = []
+}
+
 func addProperty(variable vname: Variable, property pname: String) {
-        if let objProps = properties[vname] {
+        if let _ = properties[vname] {
             properties[vname]?.insert(pname)
         } else {
             properties[vname] = [pname]
@@ -110,16 +144,60 @@ let fancyNativesGenerator = CodeGenerator("fancyNativesGenerator") { b in
 }
 
 let proxiesGenerator = CodeGenerator("proxiesGenerator") { b in
-
+    // TODO: fill this
 }
 
-let domObjectsGenerator = CodeGenerator("domObjectsGenerator") { b
-    var obj = withEqualProbability({
-        return b.loadBuiltin("this")
+let domObjectsGenerator = CodeGenerator("domObjectsGenerator") { b in
+    var obj: Variable = withEqualProbability({
+        b.loadBuiltin("this")
     },{
-        constructBuiltin()
+        constructBuiltin(builder: b, builtin: "FakeDOMObject")
     })
+    domObjects.insert(obj)   
 }
+
+let typedArraysGenerator = CodeGenerator("typedArrayGenerator") { b in 
+    let constructor = b.loadBuiltin(
+        chooseUniform(
+            from: ["Uint8Array", "Int8Array", "Uint16Array", "Int16Array", "Uint32Array", "Int32Array", "Float32Array", "Float64Array", "Uint8ClampedArray"]
+        )
+    )
+    let interestingNats = interestingIntegers.filter {int in (0 <= int) && (int <= 2147483648)}
+    let arguments = [b.loadInt(chooseUniform(from: interestingNats))]
+    var ta = b.construct(constructor, withArgs: arguments)
+    typedArrays.insert(ta)
+}
+
+let dataViewsGenerator = CodeGenerator("dataViewsGenerator") { b in 
+    if let abuffer = arrayBuffers.randomElement() {
+        let constructor = b.loadBuiltin("DataView");
+        var dv = b.construct(constructor, withArgs: [abuffer])
+        dataViews.insert(dv)
+    } else {
+
+    }
+}
+
+let arrayBuffersGenerator = CodeGenerator("arrayBuffersGenerator") { b in 
+    let constructor = b.loadBuiltin("ArrayBuffer")
+    let interestingNats = interestingIntegers.filter {int in (0 <= int) && (int <= 2147483648)}
+    let arguments = [b.loadInt(chooseUniform(from: interestingNats))]
+    var ab = b.construct(constructor, withArgs: arguments)
+    arrayBuffers.insert(ab)
+}
+
+let ccwsGenerator = CodeGenerator("ccwsGenerator") { b in }
+
+let functionsGenerator = CodeGenerator("functionsGenerator") { b in }
+
+let sparseArraysGenerator = CodeGenerator("sparseArraysGenerator") { b in }
+
+let denseArraysGenerator = CodeGenerator("denseArraysGenerator") { b in }
+
+let classesGenerator = CodeGenerator("classesGenerator") { b in }
+
+let classObjectsGenerator = CodeGenerator("classObjectsGenerator") { b in }
+
 
 func getPropertyName(inBuilder b: ProgramBuilder, forObject o: Variable) -> Variable {
     let propertyName = probability(0.5) ? b.loadString(b.genPropertyNameForWrite()) : b.loadInt(b.genIndex())
@@ -449,15 +527,108 @@ fileprivate let GetPropICTemplate = ProgramTemplate("GetPropIC", requiresPrefix:
 
 let GetPropGenerator = CodeGenerator("GetPropGenerator") { b in
     // Enumerate all of the different shapes objects take in memory
-    var obj: Variable;
-    var propertyKey: Variable;
+    var obj: Variable = b.randVar();
+    var propertyKey: String = "";
     var type: Type;
     withEqualProbability({
-        // native object
+        obj = withEqualProbability({
+           plainNatives
+        }, {
+            fancyNatives
+        }).randomElement()! 
+        let props: Set<String> = properties[obj] ?? []
+        propertyKey = props.union(["__proto__", "constructor", "length"]).randomElement()!
     })
 
     withEqualProbability({
+        b.loadProperty(propertyKey, of: obj)
+    }, {
+        let computedPropertyKey = b.loadString(propertyKey)
+        return b.loadComputedProperty(computedPropertyKey, of: obj)
     })
+}
+
+let SetPropGenerator = CodeGenerator("GetPropGenerator") { b in
+    // Enumerate all of the different shapes objects take in memory
+    var obj: Variable = b.randVar();
+    var val: Variable = b.randVar();
+    var propertyKey: String = "";
+    var type: Type;
+    withEqualProbability({
+        obj = withEqualProbability({
+           plainNatives
+        }, {
+            fancyNatives
+        }).randomElement()! 
+        let props: Set<String> = properties[obj] ?? []
+        propertyKey = props.union(["__proto__", "constructor", "length"]).randomElement()!
+    })
+
+    withEqualProbability({
+        b.storeProperty(val, as: propertyKey, on: obj)
+    }, {
+        let computedPropertyKey = b.loadString(propertyKey)
+        return b.storeComputedProperty(val, as: computedPropertyKey, on: obj)
+    })
+}
+
+let HasPropGenerator = CodeGenerator("HasPropGenerator") { b in 
+    // Enumerate all of the different shapes objects take in memory
+    var obj: Variable = b.randVar();
+    var propertyKey = b.loadString("");
+    b.doIn(propertyKey, obj)
+}
+
+let DeletePropGenerator = CodeGenerator("DeletePropGenerator") { b in
+    // TODO: is this worth fuzzing? it doesn't have any stubs associated with it
+}
+
+let CheckPrivateFieldGenerator = CodeGenerator("CheckPrivateFieldGenerator") { b in
+    // TODO: I don't think this operation is currently supported by fuzzilli
+}
+
+let InstanceOfGenerator = CodeGenerator("InstanceOfGenerator") { b in 
+    // TODO: this one should be straightforward
+}
+
+let TypeOfGenerator = CodeGenerator("TypeOfGenerator") { b in 
+    // TODO: this also should be straightforward
+}
+
+let GetIteratorGenerator = CodeGenerator("GetIteratorGenerator") { b in 
+
+}
+
+let OptimizeSpreadCallGenerator = CodeGenerator("OptimizeSpreadCallGenerator") { b in 
+
+}
+
+let CallGenerator = CodeGenerator("CallGenerator") { b in 
+
+}
+
+let CompareGenerator = CodeGenerator("CompareGenerator") { b in 
+
+}
+
+let ToBoolGenerator = CodeGenerator("ToBool") { b in 
+
+}
+
+let GetIntrinsicGenerator = CodeGenerator("GetIntrinsic") { b in 
+
+}
+
+let UnaryArithGenerator = CodeGenerator("UnaryArith") { b in 
+
+}
+
+let ToPropertyKeyGenerator = CodeGenerator("ToPropertyKey") { b in 
+
+}
+
+let BinaryArithGenerator = CodeGenerator("BinaryArith") { b in 
+
 }
 
 // Here instead of building templates from stubs, I build them from operation types.
@@ -480,25 +651,34 @@ fileprivate let GetPropICTemplate2 = ProgramTemplate("GetPropIC2", requiresPrefi
         (CodeGenerators.get("FloatArrayGenerator"), 1),
         (CodeGenerators.get("IntArrayGenerator"), 1),
         (CodeGenerators.get("ArrayGenerator"), 5),
-        (objectGenerator, 5),
-        (arrayBufferGenerator,1),
-        (typedArrayGenerator, 1),
-        // (dataViewGenerator, 1),
+        (plainNativesGenerator, 1),
+        (fancyNativesGenerator, 1),
+        // (proxiesGenerator, 1),
+        (domObjectsGenerator, 1),
+        (typedArraysGenerator, 1),
+        (dataViewsGenerator, 1),
+        (arrayBuffersGenerator, 1),
+        // (ccwsGenerator, 1),
+        // (functionsGenerator, 1),
+        // (sparseArraysGenerator, 1),
+        // (denseArraysGenerator, 1),
+        // (classesGenerator, 1),
+        // (classObjectsGenerator, 1),
         // (mapGenerator, 1),
         // (setGenerator, 1),
         // (weakMapGenerator, 1),
         // (weakSetGenerator, 1),
-        (fakeDOMObjectGenerator, 1),
     ])
 
-    let stubGenerators = WeightedList<CodeGenerator>([
-        (getPropStubGenerator, 5),
-        (setPropStubGenerator, 5),
-    ])
 
     for generator in valueGenerators {
         b.run(generator)
     }
+
+    let stubGenerators = WeightedList<CodeGenerator>([
+        (GetPropGenerator, 5),
+        (SetPropGenerator, 5),
+    ])
 
     let fun = b.definePlainFunction(withSignature: [] => .undefined) { params in
         for i in 0...10 {
@@ -511,6 +691,8 @@ fileprivate let GetPropICTemplate2 = ProgramTemplate("GetPropIC2", requiresPrefi
     b.forLoop(b.loadInt(0), .lessThan, b.loadInt(11), .Add, b.loadInt(1)) { _ in
         b.callFunction(fun, withArgs: [])
     }
+
+    clearObjects()
 }
 
 
