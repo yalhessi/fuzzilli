@@ -79,6 +79,10 @@ func addProperty(variable vname: Variable, property pname: String) {
          }
 }
 
+
+// obj = {a: 1}
+//obj ={ a: 1, get() }
+
 func generatePlainNative(builder b: ProgramBuilder) -> Variable {
     withEqualProbability({
         let obj = b.createObject(with: [:])
@@ -113,12 +117,12 @@ let proxiesGenerator = CodeGenerator("proxiesGenerator") { b in
 
 }
 
-let domObjectsGenerator = CodeGenerator("domObjectsGenerator") { b
-    var obj = withEqualProbability({
-        return b.loadBuiltin("this")
-    },{
-        constructBuiltin()
-    })
+let domObjectsGenerator = CodeGenerator("domObjectsGenerator") { b in
+    // var obj = withEqualProbability({
+    //     return b.loadBuiltin("this")
+    // },{
+    //     constructBuiltin()
+    // })
 }
 
 func getPropertyName(inBuilder b: ProgramBuilder, forObject o: Variable) -> Variable {

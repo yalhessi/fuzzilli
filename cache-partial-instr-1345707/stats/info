@@ -1,0 +1,21 @@
+++++++++++ Fuzzer Finished ++++++++++
+
+Fuzzer Statistics
+-----------------
+Total Samples:                84856
+Interesting Samples Found:    309
+Valid Samples Found:          66084
+Corpus Size:                  310
+Correctness Rate:             77.88%
+Timeout Rate:                 1.58%
+Crashes Found:                1
+Timeouts Hit:                 1344
+Coverage:                     40.30%
+Avg. program size:            71.04
+Connected workers:            71
+Execs / Second:               125.18
+Fuzzer Overhead:              3.11%
+Total Execs:                  379253
+
+╭─     ~/cache-ir-fuzzer/fuzzilli     develop *2 !37 ?1 ·························································································································································································· ✔  50m 25s    yousef@elk ─╮
+╰─                                                                                                                                                                                                                                                                                     ─╯
